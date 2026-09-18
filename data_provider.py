@@ -13,7 +13,7 @@ def get_historical_data(ticker, days=365):
     url = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
     params = {
         "symbol": ticker.upper(),
-        "resolution": "1D",
+        "resolution": "1",
         "from": start_time,
         "to": end_time
     }

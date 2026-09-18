@@ -1,4 +1,5 @@
 import telebot
+from datetime import datetime
 from data_provider import get_historical_data, get_vn30_list
 from strategy import check_signal
 
@@ -39,12 +40,21 @@ def register_handlers(bot):
             
         emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚪"
         
+        # Lấy thời gian hiện tại và thời gian của phiên giao dịch cuối cùng
+        current_time = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        last_trading_date = df.index[-1].strftime('%d/%m/%Y')
+        
         reply_text = (
             f"📊 **Kết quả phân tích {ticker}**:\n\n"
             f"• Giá hiện tại: **{close_price}** (VND)\n"
+            f"📊 **Kết quả phân tích {ticker}**:\n"
+            f"🕒 Cập nhật lúc: {current_time}\n"
+            f"📅 Dữ liệu phiên: {last_trading_date}\n\n"
+            f"• Giá đóng cửa: **{close_price}** (VND)\n"
             f"• Chỉ số RSI(14): **{rsi}**\n"
             f"• Khuyến nghị: {emoji} **{signal}**\n\n"
             f"_(Lưu ý: Tín hiệu chỉ mang tính chất tham khảo dựa trên EMA và RSI)_"
+            f"_(Lưu ý: Tín hiệu chỉ mang tính tham khảo dựa trên TA)_"
         )
         bot.send_message(message.chat.id, reply_text, parse_mode="Markdown")
 
@@ -66,6 +76,10 @@ def register_handlers(bot):
                     sell_list.append(f"{ticker} ({close_price})")
                     
         reply_text = "🎯 **TỔNG HỢP TÍN HIỆU VN30 HÔM NAY** 🎯\n\n"
+        current_time = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        
+        reply_text = f"🎯 **TỔNG HỢP TÍN HIỆU VN30** 🎯\n"
+        reply_text += f"🕒 Thời gian quét: {current_time}\n\n"
         
         reply_text += "🟢 **TÍN HIỆU MUA (BUY):**\n"
         if buy_list:
