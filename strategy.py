@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import qlib
 
 def calculate_ema(series, periods):
     """Tính Exponential Moving Average"""
@@ -14,6 +15,8 @@ def calculate_rsi(series, periods=14):
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
+
+
 
 def check_signal(df):
     """

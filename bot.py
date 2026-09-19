@@ -1,6 +1,6 @@
 import telebot
 from datetime import datetime
-from data_provider import get_historical_data, get_vn30_list
+from data.data_provider import get_historical_data, get_vn30_list
 from strategy import check_signal
 
 def register_handlers(bot):

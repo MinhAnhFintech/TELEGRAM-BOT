@@ -2,8 +2,15 @@ import requests
 import pandas as pd
 import time
 from datetime import datetime
+from pathlib import Path
+import numpy as np
 
-def get_historical_data(ticker, days=365):
+output_dir = Path("data/output")
+output_dir.mkdir(parents=True, exist_ok=True)
+
+metadata_list = []
+
+def get_historical_data(ticker, days=1095):
     """
     Lấy dữ liệu lịch sử giá của một mã cổ phiếu từ DNSE (Entrade) API.
     """
@@ -13,7 +20,7 @@ def get_historical_data(ticker, days=365):
     url = f"https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
     params = {
         "symbol": ticker.upper(),
-        "resolution": "1",
+        "resolution": "30",
         "from": start_time,
         "to": end_time
     }
@@ -58,3 +65,17 @@ def get_vn30_list():
         "TCB", "TPB", "VCB", "VHM", "VIB", "VIC", "VJC", "VNM", "VPB", "VRE"
     ]
 
+def get_csv_VN30():
+    vn30 = get_vn30_list()
+    # Giả lập vòng lặp xử lý mẫu dữ liệu
+    for i in range(30):
+        df = get_historical_data(ticker=vn30[i])
+        
+        file_path = output_dir / f"{vn30[i]}.csv"
+        
+        df.to_csv(file_path, index=False, encoding="utf-8-sig")
+    
+    
+if __name__ == "__main__":
+    get_csv_VN30()
+    
