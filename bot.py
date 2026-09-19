@@ -1,6 +1,6 @@
 import telebot
 from datetime import datetime
-from data.data_provider import get_historical_data, get_vn30_list
+from data.data_provider import get_historical_data, get_vn30_list, switch_exchange, get_current_exchange
 from strategy import check_signal
 
 def register_handlers(bot):
@@ -13,8 +13,24 @@ def register_handlers(bot):
             "Các lệnh khả dụng:\n"
             "🔸 `/check <Mã_CK>`: Xem tín hiệu một mã cụ thể. VD: `/check FPT`\n"
             "🔸 `/signals`: Quét danh sách VN30 để tìm tín hiệu Mua/Bán trong phiên hiện tại.\n"
+            "🔸 `/switch <Sàn>`: Chuyển đổi nguồn dữ liệu (VD: `/switch DNSE` hoặc `/switch TCBS`).\n"
+            f"\n_Nguồn dữ liệu hiện tại: {get_current_exchange()}_"
         )
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
+
+    @bot.message_handler(commands=['switch'])
+    def switch_exchange_command(message):
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ Vui lòng nhập tên sàn (DNSE hoặc TCBS).\nVD: `/switch TCBS`", parse_mode="Markdown")
+            return
+            
+        exchange = parts[1].upper()
+        try:
+            switch_exchange(exchange)
+            bot.reply_to(message, f"✅ Đã chuyển nguồn dữ liệu sang **{exchange}** thành công!", parse_mode="Markdown")
+        except ValueError as e:
+            bot.reply_to(message, f"❌ {e}", parse_mode="Markdown")
 
     @bot.message_handler(commands=['check'])
     def check_ticker(message):
@@ -24,6 +40,7 @@ def register_handlers(bot):
             return
             
         ticker = parts[1].upper()
+        print(f"Đang phân tích tín hiệu cho mã: {ticker}")
         bot.reply_to(message, f"🔍 Đang phân tích dữ liệu cho **{ticker}**...", parse_mode="Markdown")
         
         df = get_historical_data(ticker)
