@@ -1,7 +1,12 @@
+import sys
 import telebot
 import os
-from bot import register_handlers
 
+# Khắc phục lỗi in Unicode trên Windows terminal
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+
+from bot import register_handlers
 def main():
     # Thay thế bằng token thực tế của bạn hoặc dùng biến môi trường
     BOT_TOKEN = os.getenv('BOT_TOKEN', '8690941059:AAFXSEp11BkrqxwsjpXObGV_LMVa35EqF0k')

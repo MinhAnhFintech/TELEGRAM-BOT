@@ -32,7 +32,7 @@ def register_handlers(bot):
         except ValueError as e:
             bot.reply_to(message, f"❌ {e}", parse_mode="Markdown")
 
-    @bot.message_handler(commands=['check'])
+    @bot.message_handler(commands=['check', 'xem'])
     def check_ticker(message):
         parts = message.text.split()
         if len(parts) < 2:
@@ -40,40 +40,29 @@ def register_handlers(bot):
             return
             
         ticker = parts[1].upper()
-        print(f"Đang phân tích tín hiệu cho mã: {ticker}")
-        bot.reply_to(message, f"🔍 Đang phân tích dữ liệu cho **{ticker}**...", parse_mode="Markdown")
+        print(f"Đang phân tích tín hiệu AI SmartCore cho mã: {ticker}")
         
-        df = get_historical_data(ticker)
+        # Gửi tin nhắn thông báo đang xử lý
+        processing_msg = bot.reply_to(message, f"🔍 Đang thu thập dữ liệu và tính điểm AI SmartCore cho **{ticker}**...", parse_mode="Markdown")
         
-        if df is None:
-            bot.reply_to(message, f"❌ Không lấy được dữ liệu cho mã {ticker}. Có thể mã không tồn tại.", parse_mode="Markdown")
-            return
+        try:
+            from bot_logic import analyze_stock
+            result_text = analyze_stock(ticker)
             
-        signal, close_price, rsi = check_signal(df)
-        
-        if signal == "NOT_ENOUGH_DATA":
-            bot.reply_to(message, "❌ Không đủ dữ liệu lịch sử để phân tích.", parse_mode="Markdown")
-            return
-            
-        emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚪"
-        
-        # Lấy thời gian hiện tại và thời gian của phiên giao dịch cuối cùng
-        current_time = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-        last_trading_date = df.index[-1].strftime('%d/%m/%Y')
-        
-        reply_text = (
-            f"📊 **Kết quả phân tích {ticker}**:\n\n"
-            f"• Giá hiện tại: **{close_price}** (VND)\n"
-            f"📊 **Kết quả phân tích {ticker}**:\n"
-            f"🕒 Cập nhật lúc: {current_time}\n"
-            f"📅 Dữ liệu phiên: {last_trading_date}\n\n"
-            f"• Giá đóng cửa: **{close_price}** (VND)\n"
-            f"• Chỉ số RSI(14): **{rsi}**\n"
-            f"• Khuyến nghị: {emoji} **{signal}**\n\n"
-            f"_(Lưu ý: Tín hiệu chỉ mang tính chất tham khảo dựa trên EMA và RSI)_"
-            f"_(Lưu ý: Tín hiệu chỉ mang tính tham khảo dựa trên TA)_"
-        )
-        bot.send_message(message.chat.id, reply_text, parse_mode="Markdown")
+            # Cập nhật tin nhắn đang xử lý bằng kết quả thực tế
+            bot.edit_message_text(
+                chat_id=message.chat.id, 
+                message_id=processing_msg.message_id, 
+                text=result_text, 
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            bot.edit_message_text(
+                chat_id=message.chat.id, 
+                message_id=processing_msg.message_id, 
+                text=f"❌ Không thể phân tích mã {ticker}. Lỗi: {str(e)}", 
+                parse_mode="Markdown"
+            )
 
     @bot.message_handler(commands=['signals'])
     def scan_market(message):
