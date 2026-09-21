@@ -1,64 +1,70 @@
-# 📈 Fintech Bot - Trợ Lý Đầu Tư Chứng Khoán Trí Tuệ Nhân Tạo
+# 🤖 HỆ THỐNG BOT TELEGRAM TƯ VẤN ĐẦU TƯ CHỨNG KHOÁN TỰ ĐỘNG
 
-Đây là dự án Telegram Bot chuyên sâu, tự động sàng lọc cổ phiếu, phát hiện cơ hội và quản trị rủi ro trên thị trường chứng khoán Việt Nam. Bot không dùng mô hình dự báo tương lai ảo mà hoạt động dựa trên các nguyên tắc **Phân tích Kỹ thuật (Technical Analysis)** và **Phân tích Cơ bản (Fundamental Analysis)** cực kỳ khắt khe theo khung logic chuyên nghiệp.
-
-## 1. Tính năng nổi bật & Cấu trúc Mô hình
-
-### A. Luồng Dữ Liệu Tốc Độ Cao (Realtime API)
-- **Truy xuất trực tiếp API VNDirect:** Cào dữ liệu lịch sử giá, BCTC, P/E, EPS, Lợi suất cổ tức,... trực tiếp từ máy chủ VNDirect chỉ trong **~1 giây**, độ trễ cực thấp, không bị chặn bởi tường lửa Cloudflare.
-- **Hệ thống Adapter linh hoạt:** Hỗ trợ quét thị trường qua luồng API phụ của DNSE hoặc TCBS.
-
-### B. Cơ chế Phân loại và Cổng bảo vệ (Gate)
-- **Kiểm tra Gate (Chốt chặn an toàn):** Loại bỏ lập tức (KHÔNG KHUYẾN NGHỊ) các cổ phiếu rác, vốn chủ sở hữu âm (BVPS <= 0), hoặc thanh khoản 20 phiên dưới 1 tỷ VNĐ/ngày.
-- **Phân loại Ngành (Sector Classification):** Tự động phân luồng mã vào 3 nhóm ngành chính: `FINANCE (Tài chính)`, `REAL_ESTATE (Bất động sản)`, và `GENERAL (Đa ngành)` để áp dụng tiêu chuẩn phân tích phù hợp.
-
-### C. Bộ 3 Chiến Lược Đầu Tư Lõi (CL1, CL2, CL3)
-Người dùng có thể chọn chiến lược ưu tiên qua lệnh `/setup`:
-1. **CL1 - Trading Ngắn Hạn (< 3 Tháng):** Lướt sóng theo dòng tiền. Bắt tín hiệu MUA khi RSI 50-70, EMA20 cắt lên EMA50 và Vol > 1.2 lần trung bình. Chốt lời (R/R > 2), cắt lỗ khắt khe.
-2. **CL2 - Tăng Trưởng & Dòng Tiền (3 - 12 Tháng):** Lọc BCTC (EPS dương, ROE > 10%). Điểm MUA vọt đỉnh Pivot 20 phiên kèm khối lượng đột biến (>1.5 lần trung bình).
-3. **CL3 - Giá Trị & Cổ Tức (> 12 Tháng):** Tìm kiếm tích sản giá rẻ. Định giá P/E < 15, Dividend Yield >= 3%. Bắt đáy khi giá rớt về mức thấp nhất 120 ngày hoặc đâm thủng dải dưới Bollinger Band, chờ xác nhận nến đảo chiều.
-
-### D. Hệ thống Khuyến Nghị Tổng Hợp & Chấm Điểm AI SmartCore
-- Tự động đối chiếu chéo kết quả 3 chiến lược để ra kết luận cuối cùng (🔥 MUA MẠNH, 🟢 MUA, 👀 HOLD/THEO DÕI, ⚠️ GIẢM TỶ TRỌNG, 🔴 BÁN).
-- **AI SmartCore:** Thuật toán tự động chấm điểm cổ phiếu thang 10, đánh giá toàn diện 4 mặt: Định giá (P/E), Nền tảng (ROE), Kỹ thuật (Trend EMA) và Dòng tiền (Khối lượng), xếp hạng từ Hạng A (Xuất sắc) đến Hạng D (Yếu).
-
-### E. Cá nhân hóa & Lưu trữ vĩnh viễn (Persistence)
-- Hệ thống hỗ trợ đa người dùng (Multi-users). Lựa chọn ưu tiên của mỗi người qua lệnh `/setup` sẽ được ghi nhớ vĩnh viễn vào file cục bộ `user_settings.json`.
-- Ngay cả khi sập nguồn hoặc khởi động lại server, cấu hình bot của bạn vẫn được giữ nguyên (không bị reset về mặc định).
+Dự án này là một hệ thống Bot Telegram cung cấp giải pháp phân tích và tư vấn đầu tư chứng khoán toàn diện. Hệ thống thu thập dữ liệu thời gian thực, xử lý bằng các thuật toán kỹ thuật (Technical Analysis) và cơ bản (Fundamental Analysis), từ đó đưa ra tín hiệu giao dịch theo các chiến lược cá nhân hóa.
 
 ---
 
-## 2. Hướng dẫn cài đặt
+## 🌟 TÍNH NĂNG NỔI BẬT
 
-### Bước 1: Môi trường & Thư viện
-Dự án yêu cầu Python 3.10 trở lên.
-Mở Terminal tại thư mục gốc và chạy:
-```bash
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### Bước 2: Bảo mật Bot Token với `.env`
-1. Tìm `@BotFather` trên ứng dụng Telegram, gõ `/newbot` để tạo bot và lấy **HTTP API Token**.
-2. Tạo một file tên là `.env` trong thư mục gốc của dự án.
-3. Nhập token vào file `.env` với định dạng:
-   ```env
-   BOT_TOKEN=MÃ_TOKEN_CỦA_BẠN_LẤY_TỪ_BOTFATHER
-   ```
-
-### Bước 3: Khởi chạy
-Chạy bot bằng lệnh:
-```bash
-python main.py
-```
-Hệ thống có cơ chế tự động thử lại (Anti-Crash) nếu kết nối với máy chủ Telegram bị chập chờn.
+- **Dữ liệu chuẩn xác 100%:** Lấy dữ liệu Real-time (OHLCV) và Báo cáo tài chính trực tiếp từ các công ty chứng khoán (qua thư viện Vnstock).
+- **Phân tích đa khung - 3 Chiến lược riêng biệt:**
+  - `CL1` (Đầu cơ Ngắn hạn < 3 Tháng): Theo dấu dòng tiền, điểm cắt EMA, RSI.
+  - `CL2` (Tăng trưởng Trung hạn 3-12 Tháng): Breakout đỉnh 20 phiên, ROE > 10, EPS dương.
+  - `CL3` (Giá trị & Cổ tức > 12 Tháng): Bắt đáy hỗ trợ dài hạn (Bollinger Bands), lợi suất cổ tức > 3%.
+- **Chấm điểm AI SmartCore (1 - 10):** Tự động tổng hợp và chấm điểm sức khoẻ doanh nghiệp, xếp loại từ hạng A (Xuất sắc) đến hạng D (Yếu).
+- **Quản trị rủi ro chuyên nghiệp:**
+  - Khuyến nghị tỷ trọng sử dụng đòn bẩy (Margin) tự động dựa trên Xu hướng, D/E và RSI.
+  - Tính toán **Stop Loss (Cắt lỗ)** và **Target Price (Chốt lời)** ĐỘNG bằng chỉ báo biến động ATR (Average True Range) – không dùng % cố định cứng nhắc. (Đồng thời hỗ trợ cả 2 vị thế Long/Short).
+- **Vẽ biểu đồ tương tác (Chart Generator):** Tự động render biểu đồ Nến Nhật chuyên nghiệp (tương tự TradingView) với Fibonacci, EMA20/50, Bollinger Bands và các điểm MUA/BÁN trực quan.
 
 ---
 
-## 3. Các Lệnh Telegram Hỗ Trợ
-Vào Telegram, mở khung chat với bot của bạn và trải nghiệm:
-- ⚙️ `/setup` : Mở Menu thiết lập Chiến lược đầu tư (Lướt sóng / Tăng trưởng / Tích sản).
-- 🔍 `/xem <Mã_CK>` (hoặc `/check`) : Trả về báo cáo phân tích toàn diện, render linh hoạt và gọn gàng theo đúng chiến lược bạn đã setup. *(VD: `/xem FPT`)*
-- 🎯 `/signals` : Quét nhanh tín hiệu rổ VN30.
-- 🔄 `/switch <Sàn>` : Đổi nguồn dữ liệu dự phòng quét thị trường (DNSE / TCBS).
+## 🛠 KIẾN TRÚC HỆ THỐNG & CÔNG NGHỆ
+
+- **Ngôn ngữ:** Python 3.10+
+- **Thư viện lõi:**
+  - `pyTelegramBotAPI`: Quản lý webhook và giao tiếp với Telegram.
+  - `vnstock` / `vnai`: Lõi thu thập dữ liệu chứng khoán Việt Nam (BCTC, Dữ liệu giá, P/E, ROE).
+  - `pandas`, `numpy`: Xử lý mảng và tính toán các chỉ báo kỹ thuật (EMA, RSI, ATR).
+  - `matplotlib`, `mplfinance`: Engine vẽ biểu đồ chứng khoán.
+- **Mẫu thiết kế (Design Patterns):** 
+  - *Adapter Pattern*: Hệ thống chuyển đổi linh hoạt các nguồn cấp dữ liệu (DNSE -> VNDirect -> KBS) để đảm bảo không bao giờ bị đứt gãy data.
+
+---
+
+## 📜 CÁC LỆNH (COMMANDS) CỦA BOT
+
+| Lệnh | Chức năng |
+|---|---|
+| `/start` | Khởi động Bot, hiển thị lời chào và hướng dẫn. |
+| `/help` | Xem danh sách toàn bộ các lệnh. |
+| `/check <mã>` | Phân tích toàn diện 1 mã cổ phiếu (Kỹ thuật, Cơ bản, BCTC, Tín hiệu MUA/BÁN). Trả về văn bản + Nút bấm xem biểu đồ. |
+| `/chart <mã>` | Vẽ và gửi ngay hình ảnh phân tích kỹ thuật của mã cổ phiếu. |
+| `/signals` | Quét toàn bộ rổ VN30 để lọc ra các mã đang có tín hiệu MUA hiện tại. |
+| `/setup` | Mở menu cài đặt Chiến lược cá nhân hóa (CL1 / CL2 / CL3). |
+| `/why` | Hiển thị bảng giải thích cơ chế chấm điểm của AI SmartCore (Tại sao cộng điểm, tại sao trừ điểm). |
+
+---
+
+## 📊 VÍ DỤ VỀ LUỒNG HOẠT ĐỘNG (WORKFLOW)
+
+**Kịch bản Người dùng muốn kiểm tra mã FPT:**
+
+1. **Bước 1:** Gõ lệnh `/check FPT` trên Telegram.
+2. **Bước 2 (Xử lý nền):** Bot tải 120 phiên giá gần nhất + Báo cáo tài chính Quý mới nhất của FPT từ Vnstock. Tính toán các đường trung bình (EMA), sức mạnh tương đối (RSI), và biến động giá (ATR).
+3. **Bước 3 (Đánh giá):** Bot kiểm tra FPT qua "Gate" (Thanh khoản > 1 Tỷ/ngày, Vốn chủ > 0). Chấm điểm AI dựa trên (P/E, ROE, Net Margin, D/E).
+4. **Bước 4 (Khuyến nghị):** Bot trả về tin nhắn Telegram khuyên `BÁN` / `MUA` / `GIỮ`, kèm các thông số (SL/TP, Margin) và nút bấm **"📊 Xem biểu đồ Kỹ thuật"**.
+5. **Bước 5 (Trực quan hóa):** Người dùng bấm nút. Module `chart_generator.py` được gọi, render hình ảnh đồ thị Nến trắng nền sạch, có vẽ rõ Fibonacci và vị trí chốt lời/cắt lỗ (SL/TP) rồi gửi lại cho người dùng.
+
+---
+
+## 🔐 HƯỚNG DẪN CÀI ĐẶT
+
+1. Yêu cầu hệ thống đã cài đặt Python.
+2. Chạy môi trường ảo: `.\venv\Scripts\activate` (trên Windows).
+3. Cài đặt thư viện: `pip install -r requirements.txt`
+4. Cấu hình file `.env`: Thay thế `BOT_TOKEN` bằng token lấy từ BotFather.
+5. Chạy Bot: `python main.py`
+
+---
+*Dự án thuộc khuôn khổ Đồ án/Bài tập Phân tích Đầu tư Chứng khoán Ứng dụng AI.*

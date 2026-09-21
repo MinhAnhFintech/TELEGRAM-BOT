@@ -30,6 +30,45 @@ def _vnd_get_ratio(symbol: str, ratio_code: str) -> float:
     return 0.0
 
 
+def _kbs_get_bctc_ratios(symbol: str) -> dict:
+    """
+    Lấy các chỉ số BCTC nâng cao (Net Margin, D/E, ROE, Gross Margin...) từ Vnstock KBS.
+    VNDirect /v4/ratios KHÔNG có các trường này nên phải dùng nguồn KBS.
+    Trả về dict với key: net_margin, debt_to_equity, gross_margin, roe_kbs
+    """
+    result = {'net_margin': None, 'debt_to_equity': None, 'gross_margin': None, 'roe_kbs': None}
+    try:
+        from vnstock.api.financial import Finance
+        f = Finance(symbol=symbol, source='KBS')
+        ratio = f.ratio(period='quarter', lang='en')
+        # Lấy cột quý mới nhất (bỏ cột item, item_id)
+        data_cols = [c for c in ratio.columns if c not in ['item', 'item_id']]
+        if not data_cols:
+            return result
+        latest_col = data_cols[0]
+        
+        # Trích xuất từng chỉ số theo item_id
+        for _, row in ratio.iterrows():
+            item_id = row.get('item_id', '')
+            val = row.get(latest_col)
+            try:
+                val = float(val) if val is not None else None
+            except (ValueError, TypeError):
+                val = None
+            
+            if item_id == 'net_margin':
+                result['net_margin'] = val  # Đã là % (VD: 14.81)
+            elif item_id == 'debt_to_equity':
+                result['debt_to_equity'] = val / 100 if val is not None else None  # API trả % -> chuyển về lần
+            elif item_id == 'gross_margin':
+                result['gross_margin'] = val
+            elif item_id == 'roe':
+                result['roe_kbs'] = val
+    except Exception as e:
+        print(f"[WARN] Lỗi lấy BCTC KBS cho {symbol}: {e}")
+    return result
+
+
 def _vnd_get_stock_price(symbol: str) -> dict:
     """Lấy giá realtime từ VNDirect stock_prices API."""
     try:
@@ -124,6 +163,12 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
     
     div_yield_val = _vnd_get_ratio(symbol, 'DIVIDEND_YIELD')
     div_yield_pct = div_yield_val * 100 if div_yield_val > 0 else 0.0
+    
+    # Chỉ số BCTC nâng cao (từ Vnstock KBS - nguồn duy nhất có Net Margin & D/E)
+    bctc = _kbs_get_bctc_ratios(symbol)
+    net_profit_margin = bctc['net_margin']       # % hoặc None
+    debt_on_equity = bctc['debt_to_equity']       # lần hoặc None
+    gross_margin = bctc['gross_margin']           # % hoặc None
 
     price_vnd = current_price * 1000
     eps = price_vnd / pe if pe > 0 else 0.0
@@ -176,21 +221,40 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
     sma20 = df_hist['close'].rolling(20).mean().iloc[-1]
     std20 = df_hist['close'].rolling(20).std().iloc[-1]
     lower_bb = sma20 - 2 * std20
+    # Tính ATR (Average True Range) để tính SL/TP động
+    high_low = df_hist['high'] - df_hist['low']
+    high_close = np.abs(df_hist['high'] - df_hist['close'].shift())
+    low_close = np.abs(df_hist['low'] - df_hist['close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = np.max(ranges, axis=1)
+    atr = true_range.rolling(14).mean().iloc[-1]
+    if pd.isna(atr):
+        atr = current_price * 0.05
+    
+    # Tính SL/TP động cho CL1 (Đầu cơ Long/Short)
+    sl_long = current_price - (2 * atr)
+    tp_long = current_price + (3 * atr)
+    sl_short = current_price + (2 * atr)
+    tp_short = current_price - (3 * atr)
 
-    sl = current_price * 0.93
-    tp = current_price * 1.14
+    # Tính SL/TP cho CL2
+    sl_cl2 = current_price - (2 * atr)
+    tp_cl2 = current_price + (3 * atr)
+
+    # Tính SL/TP cho CL3 (Dài hạn)
+    sl_cl3 = min(lowest_120d, lower_bb) * 0.95
+    tp_cl3 = current_price * 1.30
 
     if not gate_passed:
         sig_cl1 = sig_cl2 = sig_cl3 = "KHÔNG KHUYẾN NGHỊ"
         final_decision = f"🚫 KHÔNG KHUYẾN NGHỊ (Lỗi Gate: {gate_reason})"
         margin_status = "❌ Cấm dùng"
+        confidence = 0
     else:
         # --- CL1: Kỹ thuật ---
         sig_cl1 = "THEO DÕI"
-        margin_status = "❌ Không nên dùng"
         if ema20 > ema50 and 50 < rsi_14 < 70 and current_vol > 1.2 * vol_ma20:
             sig_cl1 = "MUA"
-            margin_status = "✅ Có thể dùng"
         elif rsi_14 >= 70:
             sig_cl1 = "GIẢM TỶ TRỌNG"
         elif current_price < ema20:
@@ -219,6 +283,34 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
             if is_near_support and is_reversal:
                 sig_cl3 = "MUA"
         
+        # Tính tỷ trọng Margin dựa trên dữ liệu thật
+        # - Xu hướng phải TĂNG (Giá > EMA20 > EMA50)
+        # - RSI không được quá mua (< 65)
+        # - D/E phải an toàn (< 1.0)
+        margin_weight = 0
+        if current_price > ema20 > ema50:
+            margin_weight += 30
+        if 40 < rsi_14 < 65:
+            margin_weight += 20
+        if debt_on_equity is not None and debt_on_equity < 1.0:
+            margin_weight += 20
+        elif debt_on_equity is None:
+            margin_weight += 0
+            
+        if sig_cl1 == "BÁN" or rsi_14 > 70:
+            margin_weight = 0
+            
+        if margin_weight == 0:
+            margin_status = "❌ 0% (Rủi ro cao/Xu hướng giảm)"
+        elif margin_weight <= 30:
+            margin_status = f"⚠️ Tối đa {margin_weight}% (Thận trọng)"
+        else:
+            margin_status = f"✅ Tối đa {margin_weight}% (An toàn)"
+
+        # Tính độ tự tin (Confidence Score)
+        # Cơ sở: AI Score / 10 + Các yếu tố xác nhận
+        confidence_base = 50 # Mặc định 50%
+        
         # --- TỔNG HỢP KHUYẾN NGHỊ THEO BẢNG CHUẨN ---
         all_sigs = {'CL1': sig_cl1, 'CL2': sig_cl2, 'CL3': sig_cl3}
         main_sig = all_sigs.get(main_strategy, sig_cl1)
@@ -226,15 +318,20 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
         
         if main_sig == "MUA":
             if "MUA" in sub_sigs:
-                final_decision = "🔥 MUA MẠNH (Có ít nhất 1 CL phụ xác nhận)"
+                final_decision = "🔥 MUA MẠNH"
+                confidence = confidence_base + 35
             else:
                 final_decision = "🟢 MUA"
+                confidence = confidence_base + 20
         elif main_sig == "BÁN":
-            final_decision = "🔴 BÁN (Chạm Stop Loss hoặc luận điểm bị phá vỡ)"
+            final_decision = "🔴 BÁN (Chạm Stop Loss/Gãy nền)"
+            confidence = confidence_base + 30
         elif main_sig == "GIẢM TỶ TRỌNG":
-            final_decision = "⚠️ GIẢM TỶ TRỌNG (Gần mục tiêu hoặc suy yếu)"
+            final_decision = "⚠️ GIẢM TỶ TRỌNG"
+            confidence = confidence_base + 10
         else:
-            final_decision = "👀 THEO DÕI / GIỮ (Chưa đủ điều kiện kích hoạt mới)"
+            final_decision = "👀 THEO DÕI / GIỮ"
+            confidence = confidence_base
             
     # Đổi chiến lược chính thành tên hiển thị
     strategy_names = {
@@ -263,24 +360,41 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
         score += 1.0; details.append("ROE khá (+1đ)")
 
     if current_price > ema20 > ema50:
-        score += 2.0; details.append("Trend tăng khỏe (+2đ)")
+        score += 1.5; details.append("Trend tăng khỏe (+1.5đ)")
     elif current_price > ema20:
-        score += 1.0; details.append("Trend ngắn hạn ổn (+1đ)")
+        score += 0.5; details.append("Trend ngắn hạn ổn (+0.5đ)")
 
     if vol_ratio > 150:
-        score += 3.0; details.append("Dòng tiền rất mạnh (+3đ)")
+        score += 1.5; details.append("Dòng tiền rất mạnh (+1.5đ)")
     elif vol_ratio > 120:
-        score += 1.5; details.append("Dòng tiền khá (+1.5đ)")
+        score += 0.5; details.append("Dòng tiền khá (+0.5đ)")
+        
+    # Chấm điểm Sức khoẻ BCTC (Tối đa 2đ)
+    if net_profit_margin is not None:
+        if net_profit_margin > 15:
+            score += 1.0; details.append("Biên lợi nhuận cao (+1đ)")
+        elif net_profit_margin > 5:
+            score += 0.5; details.append("Biên lợi nhuận ổn (+0.5đ)")
+        
+    if debt_on_equity is not None:
+        if 0 <= debt_on_equity < 1.0:
+            score += 1.0; details.append("Tài chính an toàn (+1đ)")
+        elif debt_on_equity < 2.0:
+            score += 0.5; details.append("Nợ vay kiểm soát được (+0.5đ)")
 
     score = min(score, 10.0)
+    
+    # Cộng thêm điểm AI vào độ tự tin (Mỗi 1 điểm = 1.5%)
+    confidence = min(99, confidence + int(score * 1.5))
+    
     if score >= 8: ai_rank = "⭐ HẠNG A (Xuất Sắc)"
     elif score >= 6: ai_rank = "⭐ HẠNG B (Khá Tốt)"
-    elif score >= 4: ai_rank = "⭐ HẠNG C (Trung Bình)"
-    else: ai_rank = "⭐ HẠNG D (Yếu)"
+    elif score >= 4: ai_rank = "⚠️ HẠNG C (Trung Bình)"
+    else: ai_rank = "❌ HẠNG D (Yếu)"
 
-    # ═══════════════════════════════════════════════════════════════
+    # ——————————————————————————————————————
     # 5. RENDER TEMPLATE THEO CHIẾN LƯỢC CHÍNH
-    # ═══════════════════════════════════════════════════════════════
+    # ——————————————————————————————————————
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     sign = "+" if price_change_pct > 0 else ""
 
@@ -289,18 +403,21 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
 🏢 Nhóm ngành: {sector}
 
 🎯 **KHUYẾN NGHỊ CUỐI CÙNG: {final_decision}**
-*(Theo chiến lược {main_st_name})*
+*(Độ tự tin: {confidence}% | Theo chiến lược {main_st_name})*
 """
 
     if main_strategy == "CL1":
         msg += f"""
-⚡ **GÓC ĐẦU CƠ - TRADING NGẮN HẠN (CL1)**
+🔥 **GÓC ĐẦU CƠ - TRADING NGẮN HẠN (CL1)**
 • Tín hiệu: {sig_cl1}
 • Giá hiện tại: {current_price:,.1f} ({sign}{price_change_pct:.2f}%)
 • Khối lượng: {current_vol:,.0f} (~{vol_ratio:.1f}% BQ 20D)
 • Chỉ báo RSI(14): {rsi_14:.2f}
 • Đòn bẩy (Margin): {margin_status}
-🛡 Hỗ trợ (SL): {sl:,.2f} | 🎯 Mục tiêu (TP): {tp:,.2f}
+📈 **Vị thế Mua (Long):**
+  🛡 Hỗ trợ (SL): {sl_long:,.2f} | 🎯 Mục tiêu (TP): {tp_long:,.2f}
+📉 **Vị thế Bán khống (Short):**
+  🛡 Hỗ trợ (SL): {sl_short:,.2f} | 🎯 Mục tiêu (TP): {tp_short:,.2f}
 """
     elif main_strategy == "CL2":
         msg += f"""
@@ -309,7 +426,8 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
 • Giá hiện tại: {current_price:,.1f} ({sign}{price_change_pct:.2f}%)
 • Khối lượng: {current_vol:,.0f} (~{vol_ratio:.1f}% BQ 20D)
 • Điểm bứt phá (Pivot 20D): {highest_20d:,.1f}
-• Nền tảng: EPS dương & ROE > 10% ({'✅ Đạt' if eps > 0 and roe > 10 else '❌ Không Đạt'})
+• Đòn bẩy (Margin): {margin_status}
+🛡 Hỗ trợ (SL): {sl_cl2:,.2f} | 🎯 Mục tiêu (TP): {tp_cl2:,.2f}
 """
     elif main_strategy == "CL3":
         msg += f"""
@@ -317,16 +435,19 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
 • Tín hiệu: {sig_cl3}
 • Giá hiện tại: {current_price:,.1f} ({sign}{price_change_pct:.2f}%)
 • Vùng đáy an toàn (Lower BB/120D): {min(lowest_120d, lower_bb):,.1f}
-• Lợi suất Cổ tức: {div_yield_pct:.2f}% (Chuẩn >= 3%)
+• Lãi suất Cổ tức: {div_yield_pct:.2f}% (Chuẩn >= 3%)
 • Định giá P/E: {pe:.2f} (Chuẩn < 15)
+🛡 Hỗ trợ cắt lỗ (SL): {sl_cl3:,.2f} | 🎯 Mục tiêu dài hạn (TP): {tp_cl3:,.2f}
 """
 
     msg += f"""
 🤖 **AI SMARTCORE ĐÁNH GIÁ CHUNG**
 • Điểm AI: {score}/10 Điểm ({ai_rank})
-🔍 Phân tích: {', '.join(details) if details else 'Chưa đạt tiêu chí nào'}
-💰 Vốn hóa: {market_cap:,.0f} Tỷ | EPS: {eps:,.0f} VNĐ
-📊 P/B: {pb:.2f} | ROE: {roe:.2f}%"""
+• Phân tích: {', '.join(details) if details else 'Chưa đạt tiêu chí nào'}
+• Vốn hóa: {market_cap:,.0f} Tỷ | EPS: {eps:,.0f} VNĐ
+• P/E: {pe:.2f} | P/B: {pb:.2f} | ROE: {roe:.2f}%
+• Biên lợi nhuận (Net Margin): {f'{net_profit_margin:.1f}%' if net_profit_margin is not None else 'N/A'}
+• Tỷ lệ Nợ/Vốn chủ (D/E): {f'{debt_on_equity:.2f} lần' if debt_on_equity is not None else 'N/A'}"""
 
     return msg
 

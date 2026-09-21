@@ -28,13 +28,15 @@ def register_handlers(bot):
     @bot.message_handler(commands=['start', 'help'])
     def send_welcome(message):
         welcome_text = (
-            "📈 **FINTECH BOT - TÍN HIỆU CHỨNG KHOÁN VN** 📉\n\n"
+            "🤖 **FINTECH BOT - TÍN HIỆU CHỨNG KHOÁN VN** 🤖\n\n"
             "Bot cung cấp tín hiệu Mua/Bán dựa trên Phân tích Kỹ thuật và Cơ bản.\n\n"
             "Các lệnh khả dụng:\n"
-            "🔸 `/setup`: Cài đặt thời gian đầu tư (Quyết định Khuyến nghị cuối cùng).\n"
-            "🔸 `/check <Mã_CK>` (hoặc `/xem`): Xem phân tích chi tiết một mã. VD: `/check FPT`\n"
-            "🔸 `/signals`: Quét danh sách VN30 để tìm tín hiệu.\n"
-            "🔸 `/switch <Sàn>`: Chuyển đổi nguồn dữ liệu."
+            "⚙️ `/setup`: Cài đặt thời gian đầu tư.\n"
+            "🔍 `/check <Mã>` (hoặc `/xem`): Phân tích chi tiết 1 mã. VD: `/check FPT`\n"
+            "📊 `/chart <Mã>`: Vẽ biểu đồ Nến + Fibonacci + Tín hiệu. VD: `/chart HPG`\n"
+            "📈 `/signals`: Quét danh sách VN30 để tìm tín hiệu.\n"
+            "🧠 `/why`: Xem cách AI chấm điểm cổ phiếu.\n"
+            "🔄 `/switch <Sàn>`: Chuyển đổi nguồn dữ liệu (TCBS, DNSE)."
         )
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
@@ -72,6 +74,28 @@ def register_handlers(bot):
             parse_mode="Markdown"
         )
 
+    @bot.message_handler(commands=['why'])
+    def explain_criteria(message):
+        text = (
+            "🤖 **TIÊU CHÍ CHẤM ĐIỂM AI SMARTCORE (Thang 10 điểm)**\n\n"
+            "Hệ thống AI tự động chấm điểm cổ phiếu dựa trên sự kết hợp giữa Phân tích Cơ bản (Sức khoẻ tài chính) và Phân tích Kỹ thuật (Dòng tiền):\n\n"
+            "**1. ĐỊNH GIÁ & HIỆU QUẢ (Max 5 điểm)**\n"
+            "• Định giá P/E (Max 2đ): Rẻ (P/E < 10) +2đ, Hợp lý (10-15) +1đ.\n"
+            "• Hiệu quả ROE (Max 3đ): Xuất sắc (> 20%) +3đ, Tốt (> 15%) +2đ, Khá (> 10%) +1đ.\n\n"
+            "**2. SỨC KHOẺ TÀI CHÍNH (Max 2 điểm)**\n"
+            "• Nợ / Vốn chủ sở hữu (Max 1đ): An toàn (D/E < 1.0) +1đ, Kiểm soát được (1.0 - 2.0) +0.5đ.\n"
+            "• Biên lợi nhuận ròng (Max 1đ): Rất cao (> 15%) +1đ, Ổn định (> 5%) +0.5đ.\n\n"
+            "**3. XU HƯỚNG & DÒNG TIỀN (Max 3 điểm)**\n"
+            "• Xu hướng Giá (Max 1.5đ): Tăng trưởng mạnh (Giá > EMA20 > EMA50) +1.5đ.\n"
+            "• Dòng tiền Khối lượng (Max 1.5đ): Dòng tiền lớn vào (Vol > 150% TB 20 phiên) +1.5đ.\n\n"
+            "📊 **BẢNG XẾP HẠNG:**\n"
+            "⭐ HẠNG A (8-10đ): Cổ phiếu Toàn diện, Sẵn sàng bùng nổ.\n"
+            "⭐ HẠNG B (6-8đ): Doanh nghiệp Tốt, Chờ điểm mua kỹ thuật.\n"
+            "⚠️ HẠNG C (4-6đ): Trung bình, Rủi ro 50/50.\n"
+            "❌ HẠNG D (< 4đ): Yếu kém, Hạn chế giao dịch."
+        )
+        bot.reply_to(message, text, parse_mode="Markdown")
+
     @bot.message_handler(commands=['switch'])
     def switch_exchange_command(message):
         parts = message.text.split()
@@ -106,11 +130,19 @@ def register_handlers(bot):
             from bot_logic import analyze_stock
             result_text = analyze_stock(ticker, main_strategy=main_st)
             
+            # Tạo nút bấm "Xem biểu đồ" - truyền chiến lược vào callback
+            markup = telebot.types.InlineKeyboardMarkup()
+            markup.add(telebot.types.InlineKeyboardButton(
+                "📊 Xem biểu đồ Kỹ thuật", 
+                callback_data=f"chart_{ticker}_{main_st}"
+            ))
+            
             bot.edit_message_text(
                 chat_id=message.chat.id, 
                 message_id=processing_msg.message_id, 
                 text=result_text, 
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=markup
             )
         except Exception as e:
             bot.edit_message_text(
@@ -118,6 +150,75 @@ def register_handlers(bot):
                 message_id=processing_msg.message_id, 
                 text=f"❌ Không thể phân tích mã {ticker}. Lỗi: {str(e)}", 
                 parse_mode="Markdown"
+            )
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('chart_'))
+    def callback_chart(call):
+        # Format: chart_TICKER_CL1
+        parts_data = call.data.split('_')
+        ticker = parts_data[1].upper()
+        strategy = parts_data[2] if len(parts_data) > 2 else "CL1"
+        
+        strategy_names = {"CL1": "Dau co ngan han", "CL2": "Tang truong", "CL3": "Gia tri & Co tuc"}
+        st_name = strategy_names.get(strategy, "Dau co")
+        
+        bot.answer_callback_query(call.id, f"📊 Đang vẽ biểu đồ {ticker} ({st_name})...")
+        
+        try:
+            from chart_generator import generate_trading_chart
+            filepath = generate_trading_chart(ticker, strategy=strategy)
+            
+            if filepath and os.path.exists(filepath):
+                captions = {
+                    "CL1": f"📊 {ticker} - CL1: Đầu cơ ngắn hạn\n▲ LONG (Mua vào) | ▼ SHORT (Bán khống)\nSL/TP cụ thể trên biểu đồ | Dữ liệu thực",
+                    "CL2": f"📊 {ticker} - CL2: Tăng trưởng & Dòng tiền\n▲ MUA khi vượt Pivot 20D + Volume đột biến\nFibonacci + SL/TP | Dữ liệu thực",
+                    "CL3": f"📊 {ticker} - CL3: Giá trị & Cổ tức dài hạn\n▲ Bắt đáy khi nến đảo chiều gần BB dưới\nBollinger Bands + Fibonacci | Dữ liệu thực",
+                }
+                with open(filepath, 'rb') as photo:
+                    bot.send_photo(
+                        call.message.chat.id, 
+                        photo, 
+                        caption=captions.get(strategy, captions["CL1"])
+                    )
+            else:
+                bot.send_message(call.message.chat.id, f"❌ Không thể vẽ biểu đồ cho {ticker}.")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Lỗi vẽ biểu đồ: {str(e)}")
+
+    @bot.message_handler(commands=['chart'])
+    def send_chart(message):
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ Vui lòng nhập mã cổ phiếu.\nVD: `/chart HPG`", parse_mode="Markdown")
+            return
+        
+        ticker = parts[1].upper()
+        processing_msg = bot.reply_to(message, f"📊 Đang vẽ biểu đồ cho **{ticker}**... (5-10 giây)", parse_mode="Markdown")
+        
+        try:
+            from chart_generator import generate_trading_chart
+            filepath = generate_trading_chart(ticker)
+            
+            if filepath and os.path.exists(filepath):
+                with open(filepath, 'rb') as photo:
+                    bot.send_photo(
+                        message.chat.id, 
+                        photo, 
+                        caption=f"📊 {ticker} - Biểu đồ Nến Nhật + EMA + Fibonacci + Tín hiệu MUA/BÁN"
+                    )
+                # Xóa tin nhắn "đang vẽ"
+                bot.delete_message(message.chat.id, processing_msg.message_id)
+            else:
+                bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=processing_msg.message_id,
+                    text=f"❌ Không thể lấy dữ liệu để vẽ biểu đồ cho mã {ticker}."
+                )
+        except Exception as e:
+            bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id,
+                text=f"❌ Lỗi vẽ biểu đồ cho {ticker}: {str(e)}"
             )
 
     @bot.message_handler(commands=['signals'])
