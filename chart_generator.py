@@ -27,10 +27,17 @@ def _prepare_data(symbol: str, days: int = 120) -> pd.DataFrame:
     if df.empty or len(df) < 20:
         return pd.DataFrame()
 
-    df['EMA20'] = df['close'].ewm(span=20, adjust=False).mean()
-    df['EMA50'] = df['close'].ewm(span=50, adjust=False).mean()
+    df['SMA50'] = df['close'].rolling(50).mean()
+    df['SMA200'] = df['close'].rolling(200).mean()
 
-    # RSI
+    # Tính MACD
+    ema12 = df['close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+
+    # RSI thủ công
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -124,30 +131,30 @@ def _generate_cl1_chart(symbol: str, df: pd.DataFrame) -> str:
     short_marker = pd.Series(np.nan, index=df_plot.index)
 
     for i in range(1, len(df)):
-        ema20 = df['EMA20'].iloc[i]
-        ema50 = df['EMA50'].iloc[i]
-        ema20_prev = df['EMA20'].iloc[i - 1]
-        ema50_prev = df['EMA50'].iloc[i - 1]
+        sma50 = df['SMA50'].iloc[i]
+        price = df['close'].iloc[i]
+        macd_hist = df['MACD_Hist'].iloc[i]
+        prev_macd_hist = df['MACD_Hist'].iloc[i-1]
         rsi = df['RSI'].iloc[i]
         vol = df['volume'].iloc[i]
         vol_ma = df['Vol_MA20'].iloc[i]
         idx = df_plot.index[i]
 
-        # LONG: EMA20 Golden Cross + RSI khỏe + Volume xác nhận
-        if ema20_prev <= ema50_prev and ema20 > ema50 and rsi > 40 and vol > vol_ma:
-            long_marker[idx] = df_plot.loc[idx, 'low'] * 0.98
-
-        # SHORT: EMA20 Death Cross HOẶC RSI quá mua
-        if (ema20_prev >= ema50_prev and ema20 < ema50) or rsi > 75:
-            short_marker[idx] = df_plot.loc[idx, 'high'] * 1.02
+        # LONG: Cắt lên SMA50 hoặc MACD dương
+        if price > sma50 and macd_hist > 0 and prev_macd_hist <= 0 and vol > 1.2 * vol_ma:
+            long_marker.loc[idx] = df_plot['low'].iloc[i] * 0.98
+        
+        # SHORT: Thủng SMA50 hoặc MACD âm
+        elif price < sma50 or (macd_hist < 0 and prev_macd_hist >= 0):
+            short_marker.loc[idx] = df_plot['high'].iloc[i] * 1.02
 
     # Vẽ
     add_plots = [
-        mpf.make_addplot(df_plot['EMA20'], color='#FF6F00', width=1.5, label='EMA20'),
-        mpf.make_addplot(df_plot['EMA50'], color='#1565C0', width=1.5, label='EMA50'),
-        mpf.make_addplot(df_plot['RSI'], panel=2, color='#7B1FA2', width=1, ylabel='RSI'),
+        mpf.make_addplot(df_plot['SMA50'], color='#2980b9', width=1.2, linestyle='--', label='SMA50'),
+        mpf.make_addplot(df_plot['RSI'], panel=2, color='#8e44ad', width=1),
+        mpf.make_addplot([70]*len(df_plot), panel=2, color='#e74c3c', width=1, linestyle='--'),
+        mpf.make_addplot([30]*len(df_plot), panel=2, color='#1abc9c', width=1, linestyle='--'),
     ]
-
     if long_marker.notna().any():
         add_plots.append(mpf.make_addplot(long_marker, type='scatter', markersize=120, marker='^', color='#00C853'))
     if short_marker.notna().any():
@@ -236,17 +243,20 @@ def _generate_cl2_chart(symbol: str, df: pd.DataFrame) -> str:
     # Tín hiệu MUA breakout
     buy_marker = pd.Series(np.nan, index=df_plot.index)
     for i in range(21, len(df)):
-        pivot = df['high'].iloc[i - 21:i - 1].max()
+        pivot = df['high'].iloc[max(0, i - 21):max(1, i - 1)].max() if i >= 21 else df['high'].iloc[:i].max() if i > 0 else df['high'].iloc[0]
         vol = df['volume'].iloc[i]
         vol_ma = df['Vol_MA20'].iloc[i]
         close = df['close'].iloc[i]
-        if close > pivot and vol >= 1.5 * vol_ma:
-            buy_marker[df_plot.index[i]] = df_plot.iloc[i]['low'] * 0.98
+        sma50 = df['SMA50'].iloc[i]
+        macd_hist = df['MACD_Hist'].iloc[i]
+        
+        if close > pivot and vol >= 1.5 * vol_ma and close > sma50 and macd_hist > 0:
+            buy_marker.loc[df_plot.index[i]] = df_plot['low'].iloc[i] * 0.98
 
     add_plots = [
-        mpf.make_addplot(df_plot['EMA20'], color='#FF6F00', width=1.5),
-        mpf.make_addplot(df_plot['EMA50'], color='#1565C0', width=1.5),
-        mpf.make_addplot(df_plot['RSI'], panel=2, color='#7B1FA2', width=1, ylabel='RSI'),
+        mpf.make_addplot(df_plot['SMA50'], color='#2980b9', width=1.5, label='SMA50'),
+        mpf.make_addplot(df_plot['SMA200'], color='#c0392b', width=1.5, label='SMA200'),
+        mpf.make_addplot(df_plot['RSI'], panel=2, color='#8e44ad', width=1, ylabel='RSI'),
     ]
     if buy_marker.notna().any():
         add_plots.append(mpf.make_addplot(buy_marker, type='scatter', markersize=120, marker='^', color='#00C853'))
@@ -324,20 +334,27 @@ def _generate_cl3_chart(symbol: str, df: pd.DataFrame) -> str:
     sl = min(lowest_120d, lower_bb) * 0.95
     tp = current_price * 1.30  # CL3 mục tiêu dài hạn
 
-    # Tín hiệu bắt đáy: giá gần BB dưới + nến đảo chiều (đóng cửa > mở cửa)
+    # Tín hiệu bắt đáy / Dài hạn
     reversal_marker = pd.Series(np.nan, index=df_plot.index)
     for i in range(1, len(df)):
         close_i = df['close'].iloc[i]
-        open_i = df['open'].iloc[i]
-        bb_low = df['BB_lower'].iloc[i]
-        if pd.notna(bb_low) and close_i <= bb_low * 1.03 and close_i > open_i:
-            reversal_marker[df_plot.index[i]] = df_plot.iloc[i]['low'] * 0.98
+        sma50 = df['SMA50'].iloc[i]
+        sma200 = df['SMA200'].iloc[i]
+        prev_sma50 = df['SMA50'].iloc[i-1]
+        prev_sma200 = df['SMA200'].iloc[i-1]
+        macd_hist = df['MACD_Hist'].iloc[i]
+        prev_macd_hist = df['MACD_Hist'].iloc[i-1]
+        
+        cross_ma = (sma50 > sma200 and prev_sma50 <= prev_sma200)
+        cross_macd_bottom = (macd_hist > 0 and prev_macd_hist <= 0 and close_i <= lowest_120d * 1.10)
+        
+        if cross_ma or cross_macd_bottom:
+            reversal_marker.loc[df_plot.index[i]] = df_plot['low'].iloc[i] * 0.98
 
     add_plots = [
-        mpf.make_addplot(df_plot['SMA20'], color='#1565C0', width=1, linestyle='--'),
-        mpf.make_addplot(df_plot['BB_upper'], color='#90A4AE', width=0.8, linestyle='--'),
-        mpf.make_addplot(df_plot['BB_lower'], color='#90A4AE', width=0.8, linestyle='--'),
-        mpf.make_addplot(df_plot['RSI'], panel=2, color='#7B1FA2', width=1, ylabel='RSI'),
+        mpf.make_addplot(df_plot['SMA50'], color='#2980b9', width=1.2, label='SMA50'),
+        mpf.make_addplot(df_plot['SMA200'], color='#c0392b', width=1.2, label='SMA200'),
+        mpf.make_addplot(df_plot['RSI'], panel=2, color='#8e44ad', width=1, ylabel='RSI'),
     ]
     if reversal_marker.notna().any():
         add_plots.append(mpf.make_addplot(reversal_marker, type='scatter', markersize=120, marker='^', color='#00C853'))

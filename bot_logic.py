@@ -130,15 +130,23 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
     # ═══════════════════════════════════════════════════════════════
     # 1. LẤY DỮ LIỆU LỊCH SỬ GIÁ
     # ═══════════════════════════════════════════════════════════════
-    df_hist = _vnd_get_history(symbol, days=120)
+    df_hist = _vnd_get_history(symbol, days=250)
     
     if df_hist.empty or len(df_hist) < 3:
         return f"❌ Không thể lấy đủ dữ liệu lịch sử giá cho mã {symbol}."
 
     df_hist['EMA20'] = df_hist['close'].ewm(span=20, adjust=False).mean()
     df_hist['EMA50'] = df_hist['close'].ewm(span=50, adjust=False).mean()
+    df_hist['SMA50'] = df_hist['close'].rolling(window=50).mean()
+    df_hist['SMA200'] = df_hist['close'].rolling(window=200).mean()
     df_hist['RSI14'] = calculate_rsi(df_hist, window=14)
     df_hist['Vol_MA20'] = df_hist['volume'].rolling(window=20).mean()
+    
+    ema12 = df_hist['close'].ewm(span=12, adjust=False).mean()
+    ema26 = df_hist['close'].ewm(span=26, adjust=False).mean()
+    df_hist['MACD'] = ema12 - ema26
+    df_hist['MACD_Signal'] = df_hist['MACD'].ewm(span=9, adjust=False).mean()
+    df_hist['MACD_Hist'] = df_hist['MACD'] - df_hist['MACD_Signal']
 
     latest = df_hist.iloc[-1]
     prev = df_hist.iloc[-2]
@@ -151,6 +159,10 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
     rsi_14 = latest['RSI14']
     ema20 = latest['EMA20']
     ema50 = latest['EMA50']
+    sma50 = latest['SMA50']
+    sma200 = latest['SMA200']
+    macd_hist = latest['MACD_Hist']
+    prev_macd_hist = prev['MACD_Hist']
 
     # ═══════════════════════════════════════════════════════════════
     # 2. LẤY DỮ LIỆU TÀI CHÍNH TỪ VNDIRECT API
@@ -251,37 +263,40 @@ def analyze_stock(symbol: str, main_strategy: str = "CL1") -> str:
         margin_status = "❌ Cấm dùng"
         confidence = 0
     else:
-        # --- CL1: Kỹ thuật ---
+        # --- CL1: Kỹ thuật (MACD / Momentum Ngắn hạn) ---
         sig_cl1 = "THEO DÕI"
-        if ema20 > ema50 and 50 < rsi_14 < 70 and current_vol > 1.2 * vol_ma20:
+        # Mua: Cắt lên SMA50 hoặc MACD chuyển sang tích cực
+        if current_price > sma50 and macd_hist > 0 and prev_macd_hist <= 0 and current_vol > 1.5 * vol_ma20:
             sig_cl1 = "MUA"
-        elif rsi_14 >= 70:
+        elif rsi_14 >= 75:  # Vùng quá mua
             sig_cl1 = "GIẢM TỶ TRỌNG"
-        elif current_price < ema20:
+        # Bán: Thủng SMA50 hoặc MACD chuyển sang tiêu cực
+        elif current_price < sma50 or (macd_hist < 0 and prev_macd_hist >= 0):
             sig_cl1 = "BÁN"
 
-        # --- CL2: Cơ bản & Dòng tiền ---
+        # --- CL2: Tăng trưởng & CANSLIM (Trung hạn) ---
         sig_cl2 = "THEO DÕI"
         if eps > 0 and roe > 10:
-            if current_price > highest_20d and current_vol >= 1.5 * vol_ma20:
+            # V3: Điểm Breakout và giá TRÊN SMA50 + MACD dương
+            if current_price > highest_20d and current_vol >= 1.5 * vol_ma20 and current_price > sma50 and macd_hist > 0:
                 sig_cl2 = "MUA"
-            elif current_price < ema50:
+            # Bán khi kết quả suy giảm hoặc vi phạm kỹ thuật trung hạn
+            elif current_price < sma50:
                 sig_cl2 = "BÁN"
-            elif current_price >= highest_20d * 0.95:
+            elif current_price >= highest_20d * 0.95 and rsi_14 >= 70:
                 sig_cl2 = "GIẢM TỶ TRỌNG"
-            else:
-                sig_cl2 = "THEO DÕI"
         else:
             sig_cl2 = "THEO DÕI"
 
-        # --- CL3: Giá trị & Cổ tức ---
+        # --- CL3: Đầu tư Giá trị (Dài hạn) ---
         sig_cl3 = "THEO DÕI"
-        is_near_support = current_price <= lower_bb * 1.05 or current_price <= lowest_120d * 1.05
-        is_reversal = current_price > latest['open']
-        
-        if div_yield_pct >= 3.0 and 0 < pe < 15:
-            if is_near_support and is_reversal:
+        if (0 < pe < 15) or (div_yield_pct >= 3.0):
+            # Mua: Đảo chiều từ đợt giảm (SMA50 cắt SMA200 hoặc MACD hướng lên ở vùng đáy)
+            if (sma50 > sma200 and prev['SMA50'] <= prev['SMA200']) or (macd_hist > 0 and prev_macd_hist <= 0 and current_price <= lowest_120d * 1.10):
                 sig_cl3 = "MUA"
+            # Bán: Thủng SMA200 hoặc SMA50 cắt xuống SMA200 (Max loss 20% handled in portfolio level / bot response)
+            elif current_price < sma200 or (sma50 < sma200 and prev['SMA50'] >= prev['SMA200']):
+                sig_cl3 = "BÁN"
         
         # Tính tỷ trọng Margin dựa trên dữ liệu thật
         # - Xu hướng phải TĂNG (Giá > EMA20 > EMA50)
