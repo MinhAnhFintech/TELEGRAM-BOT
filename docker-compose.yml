@@ -1,0 +1,11 @@
+services:
+  tele-bot:
+    build:
+      dockerfile: ./dockerfile
+    container_name: vnstock_tele_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Mount thư mục data/output ra ngoài để lưu lại biểu đồ, hoặc để trống tuỳ nhu cầu
+      - ./data/output:/app/data/output
